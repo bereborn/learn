@@ -1,0 +1,6 @@
+docker run --rm -it -v /home/root1/lizexin/finance/finance:/usr/local/sandai/finance/ --name finance finance:latest
+  cd /usr/local/sandai/finance/
+  scrapy crawl finance
+
+
+
