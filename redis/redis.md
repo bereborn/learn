@@ -29,9 +29,10 @@ struct sdshdr {
     char buf[];
 };
 ```
-1. 通过预分配内存和维护字符串长度，实现动态字符串  
-2. 减少修改字符串带来的内存分配次数(空间预分配和惰性空间释放)   （1）空间预分配:小于1MB,多分配与len同样大小的未使用空间，大于1MB, 多分配1MB的未使用空间    
-（2）惰性空间释放:字符串收缩多余的的字节存放在free等待将来使用  
+1. 通过预分配内存和维护字符串长度，实现动态字符串   
+2. 减少修改字符串带来的内存分配次数(空间预分配和惰性空间释放)   
+(1)空间预分配:小于1MB,多分配与len同样大小的未使用空间，大于1MB, 多分配1MB的未使用空间    
+(2)惰性空间释放:字符串收缩多余的的字节存放在free等待将来使用  
 
 
 ---
@@ -58,6 +59,13 @@ typedef struct list {
 1. 双端链表
 2. 无环
 3. 多态: void*保存节点值
+4. 轻量级消息队列   
+(1)维护两个队列：pending 队列和 doing 表（hash表）   
+(2)由 pending 队列出队后，workers 分配一个线程去处理任务，并将时间戳和当前线程名称以及任务 id 写入 doing 表，如果 worker 完成消息的处理则自行擦除 doing 表中该任务 id 信息，如果处理业务失败，则主动回滚   
+(3)启用一个定时任务，每隔一段时间去扫描doing队列，检查每隔元素的时间戳，如果超时，把任务 rollback，即把该任务从 doing 表中删除，再重新 push 进 pending 队列
+
+> [用redis实现消息队列](https://segmentfault.com/a/1190000012244418)   
+> [利用Redis 实现消息队列](https://blog.csdn.net/ZuoAnYinXiang/article/details/50263945)
 
 ---
 - **哈希表hash**
@@ -138,6 +146,10 @@ typedef struct dict {
 	  +-----(5)1111
 ```
 
+> [Redis-字典遍历内部实现原理源码](https://blog.csdn.net/zanpengfei/article/details/86519134)   
+> [Redis Rehash机制的探索和实践](https://www.cnblogs.com/meituantech/p/9376472.html)   
+> [Redis dictScan反向二进制迭代器](https://blog.csdn.net/u011863942/article/details/46428321)   
+> [Redis源码解析——字典遍历](https://blog.csdn.net/breaksoftware/article/details/53509986)
 
 ---
 - **set**   
@@ -167,18 +179,20 @@ typedef struct intset {
 ---
 - **sort set**   
 
-（1）当数据量少时, sorted set是由ziplist来实现的   
+1. 当数据量少时, sorted set是由ziplist来实现的   
 
-1. zlbytes存储整个ziplist所占用的内存的字节数   
-2. zltail指的是ziplist中最后一个entry的偏移量  
-3. zllen指的是整个ziplit中entry的数量   
-4. zlend是一个终止字节, 其值为全F, 即0xff   
-5. 每个entry中prevlen存储了它前一个entry所占用的字节数，encoding存储着当前结点的类型:所谓的类型,包括当前结点存储的数据是什么(二进制,还是数值),如何编码(如果是数值,数值如何存储,如果是二进制数据,二进制数据的长度)，data存储真实的数据
-
-   
-
-（2）当sorted set中的元素个数, 即(数据, score)对的数目超过128的时候或者当sorted set中插入的任意一个数据的长度超过了64, sorted set是由dict + skiplist来实现   
-
+（1）zlbytes存储整个ziplist所占用的内存的字节数      
+（2）zltail指的是ziplist中最后一个entry的偏移量  
+（3）zllen指的是整个ziplit中entry的数量   
+（4）zlend是一个终止字节, 其值为全F, 即0xff   
+（5）每个entry中prevlen存储了它前一个entry所占用的字节数，encoding存储着当前结点的类型:所谓的类型,包括当前结点存储的数据是什么(二进制,还是数值),如何编码(如果是数值,数值如何存储,如果是二进制数据,二进制数据的长度)，data存储真实的数据
+2. 当sorted set中的元素个数, 即(数据, score)对的数目超过128的时候或者当sorted set中插入的任意一个数据的长度超过了64, sorted set是由dict + skiplist来实现   
+（1）skiplist 在有序链表和多层链表的基础上发展起来的，每个节点随机出一个层数（level），除了最下面第1层链表之外，它会产生若干层稀疏的链表，这些链表里面的指针故意跳过了一些节点（而且越高层的链表跳过的节点越多），这就使得我们在查找数据的时候能够先在高层的链表中进行查找，然后逐层降低，最终降到第1层链表来精确地确定数据位置，同时插入操作只需要修改插入节点前后的指针，而不需要对很多节点都进行调整，降低了插入操作的复杂度   
+（2）redis skiplist：   
+a）分数(score)允许重复，即skiplist的key允许重复，经典skiplist中是不允许的   
+b）在比较时，不仅比较分数（相当于skiplist的key），还比较数据本身，在Redis的skiplist实现中，数据本身的内容唯一标识这份数据，而不是由key来唯一标识，当多个元素分数相同的时候，还需要根据数据内容来进字典排序   
+c）第1层链表不是一个单向链表，而是一个双向链表，为了方便以倒序方式获取一个范围内的元素   
+d）level[]是一个柔性数组，存放指向各层链表后一个节点的指针（后向指针），另外，每个后向指针还对应了一个span值，它表示当前的指针跨越了多少个节点，span用于很方便地计算出元素排名(rank)   
 
 ```
 typedef struct zskiplistNode {
@@ -204,8 +218,11 @@ skiplist和各种平衡树以及哈希表
 3. 平衡树的插入和删除操作可能引发子树的调整,逻辑复杂, 而skiplist的插入和删除只需要修改相邻节点的指针, 操作简单又快速
 4. 从内存占用上来说, skiplist比平衡树更灵活一些, 平衡树每个节点包含2个指针(分别指向左右子树),而skiplist每个节点包含的指针数目平均为1/(1-p)
 5. 查找单个key,skiplist和平衡树的时间复杂度都为O(log n), 大体相当；而哈希表在保持较低的哈希值冲突概率的前提下, 查找时间复杂度接近O(1), 性能更高一些
+6. skiplist易于开发和调试
 
-
+> [Redis 为什么用跳表而不用平衡树？](https://juejin.im/post/57fa935b0e3dd90057c50fbc#heading-0)   
+> [浅析SkipList跳跃表原理及代码实现](https://blog.csdn.net/ict2014/article/details/17394259)   
+> [Redis中的跳跃表](https://blog.csdn.net/universe_ant/article/details/51134020)
 
 ---
 - **Bitmaps**
@@ -441,32 +458,35 @@ appendfsync everysec   # 每秒执行一次同步操作
 - **缓存穿透**
 1. 查询一个一定不存在的数据，由于缓存是不命中时被动写的，并且出于容错考虑，如果从存储层查不到数据则不写入缓存，这将导致这个不存在的数据每次请求都要到存储层去查询，失去了缓存的意义
 2. 解决方案   
-（1）根据业务做参数校验   
-（2）采用布隆过滤器，将所有可能存在的数据哈希到一个足够大的bitmap中，一个一定不存在的数据会被这个bitmap拦截掉，从而避免了对底层存储系统的查询压力
+(1)根据业务做参数校验   
+(2)采用布隆过滤器，将所有可能存在的数据哈希到一个足够大的bitmap中，一个一定不存在的数据会被这个bitmap拦截掉，从而避免了对底层存储系统的查询压力
 
 - **缓存雪崩**
 1. 缓存雪崩是指在我们设置缓存时采用了相同的过期时间，导致缓存在某一时刻同时失效，请求全部转发到DB，DB瞬时压力过重雪崩
 2. 解决方案   
-（1）大多数系统设计者考虑用加锁或者队列的方式保证缓存的单线程/进程写，从而避免失效时大量的并发请求落到底层存储系统上
-（2）缓存失效时间分散开,在原有的失效时间基础上增加一个随机值，比如1-5分钟随机，这样每一个缓存的过期时间的重复率就会降低，就很难引发集体失效的事件
+(1)大多数系统设计者考虑用加锁或者队列的方式保证缓存的单线程/进程写，从而避免失效时大量的并发请求落到底层存储系统上
+(2)缓存失效时间分散开,在原有的失效时间基础上增加一个随机值，比如1-5分钟随机，这样每一个缓存的过期时间的重复率就会降低，就很难引发集体失效的事件
 
 - **缓存击穿**
 1. 缓存在某个时间点过期的时候，恰好在这个时间点对这个Key有大量的并发请求过来，这些请求发现缓存过期一般都会从后端DB加载数据并回设到缓存，这个时候大并发的请求可能会瞬间把后端DB压垮
 2. 解决方案   
-（1）设置热点数据永远不过期   
-（2）加上互斥锁
+(1)设置热点数据永远不过期   
+(2)加上互斥锁
 
-> [缓存雪崩、击穿、穿透](https://juejin.im/post/5dbef8306fb9a0203f6fa3e2)
+> [缓存雪崩、击穿、穿透](https://juejin.im/post/5dbef8306fb9a0203f6fa3e2)   
+> [缓存穿透，缓存击穿，缓存雪崩解决方案分析](https://blog.csdn.net/zeb_perfect/article/details/54135506)
 ---
 ## 数据库与redis缓存数据一致性解决方案
 
 1. 写完数据库后是否需要马上更新缓存还是直接删除缓存？   
-（1）如果对于那种写数据频繁而读数据少的场景并不合适这种解决方案，因为也许还没有查询就被删除或修改了，这样会浪费时间和资源   
-（2）写入缓存中的数据需要经过几个表的关联计算后得到的结果插入缓存中，那就没有必要马上更新缓存，只有删除缓存即可，等到查询的时候在去把计算后得到的结果插入到缓存中即可   
-2. 数据库与缓存双写需要强一致性（在高并发的情况下，如果当删除完缓存的时候，这时去更新数据库，但还没有更新完，另外一个请求来查询数据，发现缓存里没有，就去数据库里查拿到旧的数据）   
-（1）用队列解决问题，创建几个队列，如20个，根据商品的ID去做hash值，然后对队列个数取摸，当有数据更新请求时，先把它丢到队列里去，当更新完后在从队列里去除，如果在更新的过程中，遇到以上场景，先去缓存里看下有没有数据，如果没有，可以先去队列里看是否有相同商品ID在做更新，如果有也把查询的请求发送到队列里去，然后同步等待缓存更新完成   
-（2）优化点：如果发现队列里有一个查询请求了，那么就不要放新的查询操作进去了，用一个while（true）循环去查询缓存，循环个200MS左右，如果缓存里还没有则直接取数据库的旧数据，一般情况下是可以取到的   
-（3）注意点：队列中挤压了大量的更新操作，造成读请求超时直接请求数据库，一般做好压力测试。热点商品请求路由到一个队列，造成队列请求倾斜，做好测试
+(1)如果对于那种写数据频繁而读数据少的场景并不合适这种解决方案，因为也许还没有查询就被删除或修改了，这样会浪费时间和资源   
+(2)写入缓存中的数据需要经过几个表的关联计算后得到的结果插入缓存中，那就没有必要马上更新缓存，只有删除缓存即可，等到查询的时候在去把计算后得到的结果插入到缓存中即可   
+2. 先更新数据库，在删除缓存，如果删除缓存失败导致数据不一致问题
+3. 先删除缓存，在更新数据库，在更新数据库的未完成的情况下发生了读到脏数据后更新了缓存
+4. 数据库与缓存双写需要强一致性（在高并发的情况下，如果当删除完缓存的时候，这时去更新数据库，但还没有更新完，另外一个请求来查询数据，发现缓存里没有，就去数据库里查拿到旧的数据）   
+(1)用队列解决问题，创建几个队列，如20个，根据商品的ID去做hash值，然后对队列个数取摸，当有数据更新请求时，先把它丢到队列里去，当更新完后在从队列里去除，如果在更新的过程中，遇到以上场景，先去缓存里看下有没有数据，如果没有，可以先去队列里看是否有相同商品ID在做更新，如果有也把查询的请求发送到队列里去，然后同步等待缓存更新完成   
+(2)优化点：如果发现队列里有一个查询请求了，那么就不要放新的查询操作进去了，用一个while（true）循环去查询缓存，循环个200MS左右，如果缓存里还没有则直接取数据库的旧数据，一般情况下是可以取到的   
+(3)注意点：队列中挤压了大量的更新操作，造成读请求超时直接请求数据库，一般做好压力测试。热点商品请求路由到一个队列，造成队列请求倾斜，做好测试
 
 > [数据库与缓存数据一致性解决方案](https://blog.csdn.net/simba_1986/article/details/77823309?depth_1-utm_source=distribute.pc_relevant.none-task&utm_source=distribute.pc_relevant.none-task)
 
@@ -474,16 +494,18 @@ appendfsync everysec   # 每秒执行一次同步操作
 ---
 ## redis分布式锁
 
-1. 分布式锁：当多个进程不在同一个系统中，用分布式锁控制多个进程对资源的访问
-2. 用到的redis命令   
-（1）setnx   
-（2）get   
-（3）getset   
-（4）expire   
+1. 从 Redis 2.6.12 版本开始，执行 SET key value EX seconds 的效果等同于执行 SETEX key seconds value + EXPIRE key seconds
+2. 分布式锁：当多个进程不在同一个系统中，用分布式锁控制多个进程对资源的访问
+3. 用到的redis命令   
+(1)setnx   
+(2)get   
+(3)getset   
+(4)expire   
 
 > [Redis分布式锁的作用及实现](https://blog.csdn.net/L_BestCoder/article/details/79336986?depth_1-utm_source=distribute.pc_relevant.none-task&utm_source=distribute.pc_relevant.none-task)   
 > [基于Redis实现分布式锁](https://blog.csdn.net/ugg/article/details/41894947?depth_1-utm_source=distribute.pc_relevant.none-task&utm_source=distribute.pc_relevant.none-task)   
 > [Redis分布式锁的正确实现方式](https://www.cnblogs.com/linjiqin/p/8003838.html#!comments)   
+> [基于Redis实现分布式锁](https://blog.csdn.net/ugg/article/details/41894947)
 
 ---
 
@@ -538,4 +560,29 @@ appendfsync everysec   # 每秒执行一次同步操作
 > [Redis，哨兵、持久化、主从、手撕LRU](https://blog.csdn.net/qq_35190492/article/details/102958250)   
 > [Redis双写一致性、并发竞争、线程模型](https://blog.csdn.net/qq_35190492/article/details/103004235)   
 > [《吊打面试官》系列- Redis基础](https://juejin.im/post/5db66ed9e51d452a2f15d833)   
-> [Redis常见面试题总结](https://blog.csdn.net/qq_35190492/article/details/103041932)
+> [Redis常见面试题总结](https://blog.csdn.net/qq_35190492/article/details/103041932)   
+> [redis详解（三）-- 面试题](https://blog.csdn.net/guchuanyun111/article/details/52064870)   
+> [面试中关于Redis的问题看这篇就够了](https://blog.csdn.net/qq_34337272/article/details/80012284)   
+> [50道Redis面试题史上最全，以后面试再也不怕问Redis了](https://juejin.im/post/5cb13b4d6fb9a0687b7dd0bd)
+
+
+
+---
+## Redis 源码
+
+> [超强、超详细Redis入门教程](https://blog.csdn.net/liqingtx/article/details/60330555)   
+> [Redis源码从哪里读起？](http://zhangtielei.com/posts/blog-redis-how-to-start.html)   
+> [Redis源码剖析](https://blog.csdn.net/xiejingfa/category_9273801.html)   
+> [Redis源码](https://blog.csdn.net/androidlushangderen/category_2647211.html)
+
+
+ 
+
+---
+
+https://segmentfault.com/a/1190000013758197   
+http://kaiyuan.me/2017/06/12/leveldb-05/   
+https://leveldb-handbook.readthedocs.io/zh/latest/cache.html   
+https://www.jianshu.com/p/d1e7efacc394   
+https://www.jianshu.com/p/9e7773432772   
+https://bean-li.github.io/leveldb-LRUCache/   
