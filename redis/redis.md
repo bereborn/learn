@@ -31,8 +31,8 @@ struct sdshdr {
 ```
 1. 通过预分配内存和维护字符串长度，实现动态字符串   
 2. 减少修改字符串带来的内存分配次数(空间预分配和惰性空间释放)   
-(1)空间预分配:小于1MB,多分配与len同样大小的未使用空间，大于1MB, 多分配1MB的未使用空间    
-(2)惰性空间释放:字符串收缩多余的的字节存放在free等待将来使用  
+(1)空间预分配：小于1MB，多分配与len同样大小的未使用空间，大于1MB，多分配1MB的未使用空间    
+(2)惰性空间释放：字符串收缩多余的的字节存放在free等待将来使用  
 
 
 ---
@@ -143,7 +143,7 @@ typedef struct dict {
 (3)011------(3)0011
 	  +-----(11)1011
 (7)111------(7)0111
-	  +-----(5)1111
+	  +-----(15)1111
 ```
 
 > [Redis-字典遍历内部实现原理源码](https://blog.csdn.net/zanpengfei/article/details/86519134)   
@@ -355,7 +355,7 @@ save 60 10000 # 60秒内有至少10000个键被更改则进行快照
 
 在执行fork的时候操作系统（类Unix操作系统）会使用写时复制（copy-on-write）策略，即fork函数发生的一刻父子进程共享同一内存数据，当父进程要更改其中某片数据时（如执行一个写命令），操作系统会将该片数据复制一份以保证子进程的数据不受影响，所以新的RDB文件存储的是执行fork一刻的内存数据
 
-Redis在进行快照的过程中不会修改RDB文件，只有快照结束后才会将旧的文件替换成新的，也就是说任何时候RDB文件都是完整的。这使得我们可以通过定时备份RDB文件来实 现Redis数据库备份
+Redis在进行快照的过程中不会修改RDB文件，只有快照结束后才会将旧的文件替换成新的，也就是说任何时候RDB文件都是完整的,这使得我们可以通过定时备份RDB文件来实现Redis数据库备份
 
 - **AOF(Append-only-file)持久化**
 
@@ -377,9 +377,9 @@ appendfsync everysec   # 每秒执行一次同步操作
 ```
 
 2. AOF重写   
-（1）AOF后台重写开启后父进程将请求写入AOF重写缓冲区   
-（2）子进程不需要对先有AOF文件进行任何读取分析, 通过读取服务器当前数据库状态实现,用一条命令去记录键值对代替之前记录这个键值对的多条命令
-（3）子进程完成AOF重写后,父进程将AOF重写缓冲区写入新的AOF文件中
+(1)AOF后台重写开启后父进程将请求写入AOF重写缓冲区   
+(2)子进程不需要对先有AOF文件进行任何读取分析, 通过读取服务器当前数据库状态实现,用一条命令去记录键值对代替之前记录这个键值对的多条命令   
+(3)子进程完成AOF重写后,父进程将AOF重写缓冲区写入新的AOF文件中
 
 - **RDB和AOF总结**
 
@@ -432,7 +432,6 @@ appendfsync everysec   # 每秒执行一次同步操作
 ## redis集群
 
 - **cluster**
-
 1. Redis cluster 支撑 N 个 Redis master node，每个master node都可以挂载多个 slave node，主从同步读写分离的
 2. Redis 集群没有使用一致性 hash, 而是引入了哈希槽的概念，Redis 集群有16384个哈希槽,每个 key 通过 CRC16 校验后对16384取模来决定放置哪个槽,集群的每个节点负责一部分 hash 槽，整个 Redis 就可以横向扩容了   
 如果你要支撑更大数据量的缓存，那就横向扩容更多的 master 节点，每个 master 节点就能存放更多的数据了
@@ -442,15 +441,30 @@ appendfsync everysec   # 每秒执行一次同步操作
 让一组相关的key映射到同一个节点上是非常有必要的，这样可以提高效率，通过多key命令一次获取多个值，redis支持key哈希标签{user1000}.following仅使用Key中的位于{和}间的字符串参与计算哈希值，这样可以保证哈希值相同，落到相同的节点上
 
 - **Sentinel**
-
 1. 作用   
 （1）监控(Monitoring): 哨兵(sentinel) 会不断地检查你的Master和Slave是否运作正常   
 （2）提醒(Notification):当被监控的某个 Redis出现问题时, 哨兵(sentinel) 可以通过 发布订阅发送通知   
 （3）自动故障迁移(Automatic failover):当一个Master不能正常工作时，哨兵(sentinel) 会开始一次自动故障迁移操作,它会将失效Master的其中一个Slave升级为新的Master, 并让失效Master的其他Slave改为复制新的Master; 当客户端试图连接失效的Master时,集群也会向客户端返回新Master的地址,使得集群可以使用Master代替失效Master
 
+- **一致性 hash**
+1. 一致性hash是一个0-2^32-1的环形闭合圆
+2. 计算一致性哈希是采用的是如下步骤：   
+(1)对节点进行hash，通常使用其节点的ip或者是具有唯一标示的数据进行hash(ip)，将其值分布在这个闭合圆上   
+(2)将存储的key进行hash(key)，然后将其值要分布在这个闭合圆上   
+(3)从hash(key)在圆上映射的位置开始顺时针方向找到的一个节点即为存储key的节点
+3. 为了防止删除节点发生热点数据造成下一节点崩溃的雪崩情况，以及节点太少数据倾斜的情况，采用虚拟节点，就是将真实节点计算多个哈希形成多个虚拟节点并放置到哈希环上，定位算法不变，只是多了一步虚拟节点到真实节点映射的过程
+4. 一致性哈希算法在分布式系统中的使用场景：   
+(1)负载均衡：对客户端IP地址或者会话ID计算哈希值，顺时针方向找到的一个节点服务器地址   
+(2)数据分片：搜索日志数据分片多台机器   
+(3)分布式存储：海量的数据、海量的用户的数据存储
+
 > [redis集群](https://www.cnblogs.com/lixinjie/p/a-key-point-of-redis-in-interview.html)   
 > [Redis的哨兵机制或者心跳机制模式原理详解](https://blog.csdn.net/u012240455/article/details/81843714?depth_1-utm_source=distribute.pc_relevant.none-task&utm_source=distribute.pc_relevant.none-task)  
-> [redis主从复制和集群实现原理](https://blog.csdn.net/nuli888/article/details/52136822?depth_1-utm_source=distribute.pc_relevant.none-task&utm_source=distribute.pc_relevant.none-task)
+> [redis主从复制和集群实现原理](https://blog.csdn.net/nuli888/article/details/52136822?depth_1-utm_source=distribute.pc_relevant.none-task&utm_source=distribute.pc_relevant.none-task)   
+> [那些年用过的Redis集群架构](https://www.cnblogs.com/rjzheng/p/10360619.html)
+
+> [一致性哈希和哈希槽对比](https://www.jianshu.com/p/4163916a2a8a)   
+> [一致性哈希算法在分布式系统中的使用场景](https://blog.csdn.net/m0_37609579/article/details/100901237)
 
 ---
 ## 缓存雪崩、击穿、穿透
@@ -464,8 +478,8 @@ appendfsync everysec   # 每秒执行一次同步操作
 - **缓存雪崩**
 1. 缓存雪崩是指在我们设置缓存时采用了相同的过期时间，导致缓存在某一时刻同时失效，请求全部转发到DB，DB瞬时压力过重雪崩
 2. 解决方案   
-(1)大多数系统设计者考虑用加锁或者队列的方式保证缓存的单线程/进程写，从而避免失效时大量的并发请求落到底层存储系统上
-(2)缓存失效时间分散开,在原有的失效时间基础上增加一个随机值，比如1-5分钟随机，这样每一个缓存的过期时间的重复率就会降低，就很难引发集体失效的事件
+(1)大多数系统设计者考虑用加锁或者队列的方式保证缓存的单线程/进程写，从而避免失效时大量的并发请求落到底层存储系统上   
+(2)缓存失效时间分散开,在原有的失效时间基础上增加一个随机值，比如1-5分钟随机，这样每一个缓存的过期时间的重复率就会降低，就很难引发集体失效的事件   
 
 - **缓存击穿**
 1. 缓存在某个时间点过期的时候，恰好在这个时间点对这个Key有大量的并发请求过来，这些请求发现缓存过期一般都会从后端DB加载数据并回设到缓存，这个时候大并发的请求可能会瞬间把后端DB压垮
@@ -488,24 +502,71 @@ appendfsync everysec   # 每秒执行一次同步操作
 (2)优化点：如果发现队列里有一个查询请求了，那么就不要放新的查询操作进去了，用一个while（true）循环去查询缓存，循环个200MS左右，如果缓存里还没有则直接取数据库的旧数据，一般情况下是可以取到的   
 (3)注意点：队列中挤压了大量的更新操作，造成读请求超时直接请求数据库，一般做好压力测试。热点商品请求路由到一个队列，造成队列请求倾斜，做好测试
 
-> [数据库与缓存数据一致性解决方案](https://blog.csdn.net/simba_1986/article/details/77823309?depth_1-utm_source=distribute.pc_relevant.none-task&utm_source=distribute.pc_relevant.none-task)
+> [数据库与缓存数据一致性解决方案](https://blog.csdn.net/simba_1986/article/details/77823309?depth_1-utm_source=distribute.pc_relevant.none-task&utm_source=distribute.pc_relevant.none-task)   
+> [分布式之数据库和缓存双写一致性方案解析](https://www.cnblogs.com/rjzheng/p/9041659.html)
 
 
 ---
 ## redis分布式锁
+- **分布式锁**
+1. 分布式锁：当多个进程不在同一个系统中，用分布式锁控制多个进程对资源的访问
 
+- **setex**
 1. 从 Redis 2.6.12 版本开始，执行 SET key value EX seconds 的效果等同于执行 SETEX key seconds value + EXPIRE key seconds
-2. 分布式锁：当多个进程不在同一个系统中，用分布式锁控制多个进程对资源的访问
-3. 用到的redis命令   
-(1)setnx   
-(2)get   
-(3)getset   
-(4)expire   
+2. 缺点：试想一下，某线程A获取了锁并且设置了过期时间为10s，然后在执行业务逻辑的时候耗费了15s，此时线程A获取的锁早已被Redis的过期机制自动释放了，在线程A获取锁并经过10s之后，改锁可能已经被其它线程获取到了，当线程A执行完业务逻辑准备解锁（DEL key）的时候，有可能删除掉的是其它线程已经获取到的锁，所以最好的方式是在解锁时判断锁是否是自己的，我们可以在设置key的时候将value设置为一个唯一值uniqueValue，例如机器号+线程号的组合、签名等
+
+- **lua分布式锁**
+1. 加锁机制： 
+```
+// 锁成功
+if (redis.exists(key) == 0) then
+    redis.hset(key, id, client_id, times, 1)
+    redis.ttl(key, expire_time)
+    return true
+end
+// 可重入加锁，增加times
+if (redis.hget(key, id) == client_id) then
+    redis.incr(key, times)
+    redis.ttl(key, expire_time)
+    return true
+end
+// 锁互斥，返回锁剩余时间
+return redis.pttl(key)
+```
+
+2. 释放锁机制：
+
+```
+// 释放锁
+if (redis.hget(key, id) == client_id) then
+    redis.decr(key, times)
+    if (redis.hget(key, times) == 0) then
+        redis.del(key)
+    end
+end
+```
+3. watchdog的概念，翻译过来就是看门狗，它会在你获取锁之后，每隔10秒帮你把key的超时时间设为30s
+4. 缺点：在redis master实例宕机的时候，redis slave未同步master数据，可能导致多个客户端同时完成加锁，导致各种脏数据的产生
+
+- **RedLock算法**
+1. 假设redis的部署模式是redis cluster，总共有5个master节点，通过以下步骤获取一把锁：   
+(1)获取当前时间戳，单位是毫秒   
+(2)轮流尝试在每个master节点上创建锁，过期时间设置较短，一般就几十毫秒   
+(3)尝试在大多数节点上建立一个锁，比如5个节点就要求是3个节点（n / 2 +1）   
+(4)客户端计算建立好锁的时间，如果建立锁的时间小于超时时间，就算建立成功了   
+(5)要是锁建立失败了，那么就依次删除这个锁   
+(6)只要别人建立了一把分布式锁，你就得不断轮询去尝试获取锁   
+2. Redlock会失效的情况：时钟发生跳跃，长时间的网络延迟
+
 
 > [Redis分布式锁的作用及实现](https://blog.csdn.net/L_BestCoder/article/details/79336986?depth_1-utm_source=distribute.pc_relevant.none-task&utm_source=distribute.pc_relevant.none-task)   
 > [基于Redis实现分布式锁](https://blog.csdn.net/ugg/article/details/41894947?depth_1-utm_source=distribute.pc_relevant.none-task&utm_source=distribute.pc_relevant.none-task)   
 > [Redis分布式锁的正确实现方式](https://www.cnblogs.com/linjiqin/p/8003838.html#!comments)   
 > [基于Redis实现分布式锁](https://blog.csdn.net/ugg/article/details/41894947)
+
+> [拜托，面试请不要再问我Redis分布式锁的实现原理！](https://juejin.im/post/5bf3f15851882526a643e207)   
+> [面试不懂分布式锁？那得多吃亏](https://juejin.im/post/5d26266de51d454f71439d70#heading-1)   
+> [大家所推崇的 Redis 分布式锁，真的万无一失吗？](https://juejin.im/post/5d41c94bf265da03a715b18f)
 
 ---
 
@@ -586,3 +647,6 @@ https://leveldb-handbook.readthedocs.io/zh/latest/cache.html
 https://www.jianshu.com/p/d1e7efacc394   
 https://www.jianshu.com/p/9e7773432772   
 https://bean-li.github.io/leveldb-LRUCache/   
+
+红黑树   
+分布式一致性算法Raft

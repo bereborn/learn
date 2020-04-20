@@ -41,11 +41,11 @@ Mysql 提供了对于默认的 SQL 语句都不使用查询缓存的方式
 (3)审计：用户可以通过二进制日志中的信息来进行审计，判断是否有对数据库进行注入攻击
 5. binlog常见格式
 
-<!--format|定义|优点|缺点-->
-<!--:-----|:--|:---|:----->
-<!--statement|记录的是修改SQL语句|日志文件小，节约IO，提高性能|准确性差，有些语句的执行结果是依赖于上下文命令可能会导致主备不一致(delete带limit，很可能会出现主备数据不一致的情况)-->
-<!--row|记录的是每行实际数据的变更|准确性强，能准确复制数据的变更|日志文件大，较大的网络IO和磁盘IO-->
-<!--mixed|statement和row模式的混合|准确性强，文件大小适中|有可能发生主从不一致问题-->
+format|定义|优点|缺点
+:-----|:--|:---|:---
+statement|记录的是修改SQL语句|日志文件小，节约IO，提高性能|准确性差，有些语句的执行结果是依赖于上下文命令可能会导致主备不一致(delete带limit，很可能会出现主备数据不一致的情况)
+row|记录的是每行实际数据的变更|准确性强，能准确复制数据的变更|日志文件大，较大的网络IO和磁盘IO
+mixed|statement和row模式的混合|准确性强，文件大小适中|有可能发生主从不一致问题
 
 - **两段提交**   
 
@@ -67,7 +67,7 @@ Mysql 提供了对于默认的 SQL 语句都不使用查询缓存的方式
 - **Mysql抖动**
 1. 当内存数据页跟磁盘数据页内容不一致的时候，称这个内存页为脏页，把内存里的数据写入磁盘的过程是flush
 2. InnoDB 的 redo log 写满了，系统会停止所有更新操作，把 checkpoint 对应的所有脏页都 flush 到磁盘
-3. 系统内存不足。当需要新的内存页，而内存不够用的时候，就要淘汰一些数据页，空出内存给别的数据页使用。如果淘汰的是"脏页"，就要先将脏页写到磁盘
+3. 系统内存不足，当需要新的内存页，而内存不够用的时候，就要淘汰一些数据页，空出内存给别的数据页使用。如果淘汰的是"脏页"，就要先将脏页写到磁盘
 4. MySQL 认为系统"空闲"的时候，会flush脏页
 5. MySQL 正常关闭的情况，MySQL 会把内存的脏页都 flush 到磁盘上
 6. InnoDB 的刷盘速度参考两个因素：一个是脏页比例，一个是 redo log 写盘速度
@@ -108,7 +108,7 @@ Mysql 提供了对于默认的 SQL 语句都不使用查询缓存的方式
 1. B树定义：   
 (1)树中每个结点最多含有m个子树   
 (2)除根结点和叶子结点外，其它每个结点至少有[ceil(m / 2)]个子树（其中ceil(x)是一个取上限的函数）   
-(3)若根结点不是叶子结点，则至少有2个孩子
+(3)若根结点不是叶子结点，则至少有2个孩子   
 (4)所有叶子结点都出现在同一层，叶子结点不包含任何关键字信息(可以看做是外部接点或查询失败的接点，实际上这些结点不存在，指向这些结点的指针都为null)   
 (5)每个非终端结点中包含有n个关键字信息： (n，P0，K1，P1，K2，P2，......，Kn，Pn)，其中：   
 （a）Ki (i=1...n)为关键字，且关键字按顺序升序排序K(i-1)< Ki   
@@ -179,9 +179,9 @@ Mysql 提供了对于默认的 SQL 语句都不使用查询缓存的方式
 1. table | type | possible_keys | key | key_len | ref | rows | Extra
 2. type：连接类型   
 (1)const：表最多有一个匹配行，const用于比较primary key 或者unique索引，因为只匹配一行数据，所以很快（explain SELECT * FROM `asj_admin_log` where log_id = 111）   
-(2)eq_ref：对于每个来自于前面的表的行组合，从该表中读取一行，它用在一个索引的所有部分被联接使用并且索引是UNIQUE或PRIMARY KEY（explain select * from uchome_spacefield，uchome_space where uchome_spacefield.uid = uchome_space.uid）   
-(3)ref：对于每个来自于前面的表的行组合，所有有匹配索引值的行将从这张表中读取，如果联接只使用键的最左边的前缀，或如果键不是 UNIQUE 或 PRIMARY KEY，则使用ref，这个类型严重依赖于根据索引匹配的记录多少—越少越好（explain select * from uchome_space where uchome_space.friendnum = 0）   
-(4)range：给定范围内的检索，使用一个索引来检查行（explain select * from uchome_space where uid < 2 ）   
+(2)eq_ref：对于每个来自于前面的表的行组合，从该表中读取一行，它用在一个索引的所有部分被联接使用并且索引是UNIQUE或PRIMARY KEY，常见于主键或唯一索引扫描（explain select * from uchome_spacefield，uchome_space where uchome_spacefield.uid = uchome_space.uid）   
+(3)ref：对于每个来自于前面的表的行组合，所有有匹配索引值的行将从这张表中读取，如果联接只使用键的最左边的前缀，或如果键不是 UNIQUE 或 PRIMARY KEY，则使用ref，这个类型严重依赖于根据索引匹配的记录多少—越少越好，常见于使用非唯一索引或唯一索引的前缀查找（explain select * from uchome_space where uchome_space.friendnum = 0）   
+(4)range：给定范围内的检索，使用一个索引来检查行，常见于between、<、>等的查询（explain select * from uchome_space where uid < 2 ）   
 (5)index：对于每个来自于前面的表的行组合，进行完全扫描，这通常比ALL快，因为索引文件通常比数据文件小   
 (6)ALL：对于每个来自于前面的表的行组合，进行完整的表扫描
 3. possible_keys：显示可能应用在这张表中的索引
@@ -193,9 +193,9 @@ Mysql 提供了对于默认的 SQL 语句都不使用查询缓存的方式
 (1)Distinct：一旦mysql找到了与行相联合匹配的行， 就不再搜索了   
 (2)Not exists：mysql优化了LEFT JOIN， 一旦它找到了匹配LEFT JOIN标准的行， 就不再搜索了   
 (3)Range checked for each Record：没有找到合适的索引，因此对从前面表中来的每一个行组合，mysql检查使用哪个索引   
-(4)using filesort：查询就需要优化了，mysql需要进行额外的步骤来发现如何对返回的行排序，根据连接类型以及存储排序键值和匹配条件的全部行的行指针来排序全部行   
+(4)using filesort：查询就需要优化了，mysql需要进行额外的步骤来发现如何对返回的行排序，根据连接类型以及存储排序键值和匹配条件的全部行的行指针来排序全部行（select city,name,age from t where city='杭州' order by name limit 1000; 不给name添加索引数据库使用sort_buffer对name数据排序，内存sort_buffer不够则使用外部排序，将数据分割多个文件排序再组合，或者使用rowid排序，sort_buffer只有主键id和name，name排序完再根据主键id从表中取数据）   
 (5)using index：列数据是从仅仅使用了索引中的信息而没有读取实际的行动的表返回的，这发生在对表的全部的请求列都是同一个索引的部分的时候   
-(6)Using temporary：查询需要优化了，mysql需要创建一个临时表来存储结果，这通常发生在对不同的列集进行ORDER BY上   
+(6)Using temporary：查询需要优化了，mysql需要创建一个临时表来存储结果，这通常发生在对不同的列集进行ORDER BY上（select word from words order by rand() limit 3;从表取出主键id并且生成一个随机值，sort_buffer对其排序，取前三个主键id从表中取数据，随机算法：取表行数C，取得 Y = floor(C * rand())，在用limit Y，1 取得一行）   
 (7)using where：使用了WHERE从句来限制哪些行将与下一张表匹配或者是返回给用户   
 
 
@@ -225,12 +225,12 @@ Mysql 提供了对于默认的 SQL 语句都不使用查询缓存的方式
 (2)意向排他锁 IX：事务在给一个数据行加排他锁前必须先取得该表的IX锁
 
 - **行锁**
-1. 两阶段锁协议：在 InnoDB 事务中，行锁是在需要的时候才加上的，但并不是不需要了就立刻释 放，而是要等到事务结束时才释放
+1. 两阶段锁协议：在 InnoDB 事务中，行锁是在需要的时候才加上的，但并不是不需要了就立刻释放，而是要等到事务结束时才释放
 2. 如果你的事务中需要锁多个行，要把最可能造成锁冲突、最可能影响并 发度的锁的申请时机尽量往后放
 3. 行锁模式：   
 (1)共享锁 s：多个事务只能读数据不能改数据   
 (2)排他锁 x：其他事务不能再在其上加其他的锁（select语句默认不会加任何锁类型）
-4. InnoDB行锁实现方式：InnoDB行锁是通过给索引上的索引项加锁来实现的，只有通过索引条件检索数据，InnoDB才使用行级锁，==否则，InnoDB将使用表锁==，当表有多个索引的时候，不同的事务可以使用不同的索引锁定不同的行，即便在条件中使用了索引字段，但是否使用索引来检索数据是由MySQL通过判断不同执行计划的代价来决 定的，如果MySQL认为全表扫描效率更高，比如对一些很小的表，这种情况下InnoDB将使用表锁而不是行锁
+4. InnoDB行锁实现方式：InnoDB行锁是通过给索引上的索引项加锁来实现的，只有通过索引条件检索数据，InnoDB才使用行级锁，==否则，InnoDB将使用表锁==，当表有多个索引的时候，不同的事务可以使用不同的索引锁定不同的行，即便在条件中使用了索引字段，但是否使用索引来检索数据是由MySQL通过判断不同执行计划的代价来决定的，如果MySQL认为全表扫描效率更高，比如对一些很小的表，这种情况下InnoDB将使用表锁而不是行锁
 
 
 - **死锁**
@@ -254,7 +254,8 @@ Mysql 提供了对于默认的 SQL 语句都不使用查询缓存的方式
 4. 间隙锁保证Mysql恢复和复制正确性   
 (1)MySQL的恢复是SQL语句级的，也就是重新执行BINLOG中的SQL语句，MySQL的Binlog是按照事务提交的先后顺序记录的，恢复也是按这个顺序进行的   
 (2)在BINLOG中，更新操作的位置在INSERT...SELECT之前，如果使用这个BINLOG进行数据库恢复，恢复的结果与实际的应用逻辑不符；如果进行复制，就会导致主从数据库不一致！   
-(3) INSERT...SELECT...和 CREATE TABLE...SELECT... 语句，InnoDB会给源表加间隙锁
+(3) INSERT...SELECT...和 CREATE TABLE...SELECT... 语句，InnoDB会给源表加共享锁   
+(4)INSERT...SELECT...和 CREATE TABLE...SELECT... 语句 where 带范围，InnoDB会给源表加共享锁+间隙锁
 
 
 - **next-key锁**
@@ -347,7 +348,7 @@ Mysql 提供了对于默认的 SQL 语句都不使用查询缓存的方式
 
 
 ---
-## count(\*)
+## count(*)
 
 - **count(\*)实现方式**
 1. MyISAM 引擎把一个表的总行数存在了磁盘上，因此执行 count(*) 的时候会直接返回这个数，效率很高
@@ -378,3 +379,101 @@ Mysql 提供了对于默认的 SQL 语句都不使用查询缓存的方式
 8. 选择正确的存储引擎，MyISAM 适合于一些需要大量查询的应用，但其对于有大量写操作并不是很好，甚至你只是需要update一个字段，整个表都会被锁起来，另外，MyISAM 对于 SELECT COUNT(*) 这类的计算是超快无比的，InnoDB 的趋势会是一个非常复杂的存储引擎，对于一些小的应用，它会比 MyISAM 还慢。他是它支持“行锁” ，于是在写操作比较多的时候，会更优秀，并且，他还支持更多的高级应用，比如：事务
 
 > [Mysql数据库调优和性能优化21条最佳实践](https://www.jianshu.com/p/9d438bbd2afc)
+
+---
+## 分布式ID方案总结
+
+- **数据库自增ID**
+
+```
+// 数据库表
+CREATE TABLE SEQID.SEQUENCE_ID (
+	id bigint(20) unsigned NOT NULL auto_increment, 
+	stub char(10) NOT NULL default '',
+	PRIMARY KEY (id),
+	UNIQUE KEY stub (stub)
+) ENGINE=MyISAM;
+
+// 获取一个自增id
+// stub字段在这里并没有什么特殊的意义，只是为了方便的去插入数据，只有能插入数据才能产生自增id
+// 对于插入我们用的是replace，replace会先看是否存在stub指定值一样的数据，如果存在则先delete再insert，如果不存在则直接insert
+begin;
+replace into SEQUENCE_ID (stub) VALUES ('anyword');
+select last_insert_id();
+commit;
+
+# 业务系统每次需要一个ID时，都需要请求数据库获取，性能低，并且如果此数据库实例下线了，那么将影响所有的业务系统
+```
+
+- **数据库多主模式**
+
+```
+// 单独给每个Mysql实例配置不同的起始值和自增步长
+
+// 第一台Mysql实例配置：
+set @@auto_increment_offset = 1;     -- 起始值
+set @@auto_increment_increment = 2;  -- 步长
+
+第二台Mysql实例配置：
+set @@auto_increment_offset = 2;     -- 起始值
+set @@auto_increment_increment = 2;  -- 步长
+
+// 这两个Mysql实例生成的id序列如下：
+// mysql1,起始值为1，步长为2，ID生成的序列为：1，3，5，7，9... 
+// mysql2，起始值为2，步长为2，ID生成的序列为：2，4，6，8，10...
+
+# 实行这种方案后，就算其中某一台Mysql实例下线了，仍然可以利用另外一台Mysql来生成ID
+# 但是这种方案的扩展性不太好，如果两台Mysql实例不够用，需要新增Mysql实例来提高性能时，这时就会比较麻烦
+# 第一，mysql1、mysql2的步长肯定都要修改为3，而且只能是人工去修改，这是需要时间的
+# 第二，因为mysql1和mysql2是不停在自增的，对于mysql3的起始值我们可能要定得大一点，以给充分的时间去修改mysql1，mysql2的步长
+# 第三，在修改步长的时候很可能会出现重复ID，要解决这个问题，可能需要停机才行
+```
+
+- **号段模式**
+
+```
+CREATE TABLE id_generator (
+  id int(10) NOT NULL,
+  current_max_id bigint(20) NOT NULL COMMENT '当前最大id',
+  increment_step int(10) NOT NULL COMMENT '号段的长度',
+  version int(10) NOT NULL COMMENT '版本',
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+// 乐观锁并发控制
+update id_generator set current_max_id=#{newMaxId}, version=version+1 where version = #{version}
+
+// 批量获取自增id
+// 如果DistributIdService重启，会丢失一段ID，导致ID空洞
+```
+
+- **Redis**
+
+```
+127.0.0.1:6379> set seq_id 1     // 初始化自增ID为1
+OK
+127.0.0.1:6379> incr seq_id      // 增加1，并返回
+(integer) 2
+127.0.0.1:6379> incr seq_id      // 增加1，并返回
+(integer) 3
+
+// Redis支持RDB和AOF两种持久化的方式，如果Redis挂掉了，重启Redis后会出现ID重复，
+```
+
+- **雪花算法**
+
+```
+// 分布式ID固定是一个long型的数字，一个long型占8个字节，也就是64个bit
+// 第一个bit位是标识部分，在java中由于long的最高位是符号位，一般为0
+// 时间戳部分占41bit，这个是毫秒级的时间，41位的时间戳可以使用69年
+// 工作机器id占10bit，可以部署1024个节点
+// 序列号部分占12bit，支持同一毫秒内同一个节点可以生成4096个ID
+
+// 原始的snowflake算法需要人工去为每台机器去指定一个机器id，并配置在某个地方从而让snowflake从此处获取机器id，但是在大厂里，机器是很多的，人力成本太大且容易出错
+// 所以大厂对snowflake进行了改造，应用在启动时会往数据库表(uid-generator需要新增一个WORKER_NODE表)中去插入一条数据，数据插入成功后返回的该数据对应的自增唯一id就是该机器的workId
+```
+
+> [大型互联网公司分布式ID方案总结](https://juejin.im/post/5d6fc8eff265da03ef7a324b#heading-1)
+
+
+
